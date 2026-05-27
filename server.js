@@ -131,9 +131,12 @@ app.post('/upload', upload.single('photo'), async (req, res) => {
     log.ok(`Drive upload done → fileId: ${driveResult.fileId}`);
     log.ok(`View link: ${driveResult.webViewLink}`);
 
-    log.step('STEP 3 — Appending row to Bills ledger…');
-    const ledgerSheetId = await appendLedgerRow({ rowId, fileId: driveResult.fileId, fileName, uploadTs });
-    log.ok(`Ledger row appended → sheetId: ${ledgerSheetId}`);
+    // ── STEP 3: Ledger (Bills Google Sheet) — commented out for Agent 1 ──────
+    // This will be handled by Agent 2, which parses the image via LLM and
+    // writes structured Xero-schema rows into the Bills sheet.
+    // const ledgerSheetId = await appendLedgerRow({ rowId, fileId: driveResult.fileId, fileName, uploadTs });
+    // log.ok(`Ledger row appended → sheetId: ${ledgerSheetId}`);
+    const ledgerSheetId = null; // placeholder until Agent 2
 
     log.ok('=== UPLOAD COMPLETE ===');
 
