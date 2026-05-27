@@ -5,325 +5,581 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Continental · Agent 1</title>
+<title>Continental · Receipt Capture</title>
 <style>
   :root {
-    --bg:#0d0f14; --surface:#161b25; --card:#1e2535;
-    --accent:#3b7cf4; --accent2:#5de8c1; --warn:#f4943b;
-    --text:#e8eaf0; --muted:#6b7899;
-    --ok:#44d9a0; --err:#f4504a; --step:#a78bfa;
-    --r:14px; --font:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    --bg:     #0a0b0f;
+    --surface:#13161f;
+    --card:   #1a1e2a;
+    --accent: #3b7cf4;
+    --accent2:#5de8c1;
+    --warn:   #f4943b;
+    --text:   #e8eaf0;
+    --muted:  #5a6380;
+    --ok:     #44d9a0;
+    --err:    #f4504a;
+    --r:      16px;
+    --font:   -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
   }
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--text);font-family:var(--font);
-       min-height:100dvh;display:flex;flex-direction:column;align-items:center;overflow-x:hidden}
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  header{width:100%;background:var(--surface);border-bottom:1px solid rgba(255,255,255,.06);
-         padding:14px 20px 12px;display:flex;align-items:center;gap:12px;
-         position:sticky;top:0;z-index:10}
-  .logo{width:32px;height:32px;border-radius:8px;
-        background:linear-gradient(135deg,var(--accent),var(--accent2));
-        display:grid;place-items:center;font-size:16px;flex-shrink:0}
-  header h1{font-size:17px;font-weight:700}
-  header span{font-size:11px;color:var(--muted)}
-  .debug-link{margin-left:auto;font-size:11px;color:var(--accent);text-decoration:none;
-              background:rgba(59,124,244,.12);padding:4px 10px;border-radius:6px}
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    overflow: hidden; /* no page scroll — app fills screen */
+  }
 
-  main{width:100%;max-width:480px;padding:16px 16px 32px;display:flex;flex-direction:column;gap:14px}
+  /* ── Full-screen app shell ── */
+  .app {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    max-width: 430px;   /* iPhone 15 Pro width */
+    margin: 0 auto;
+  }
 
-  /* ── Camera box ── */
-  .camera-wrap{position:relative;width:100%;aspect-ratio:4/3;border-radius:var(--r);
-               overflow:hidden;background:#000;border:1px solid rgba(255,255,255,.08)}
+  /* ── Header ── */
+  header {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px 10px;
+    background: var(--surface);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    z-index: 10;
+  }
+  .logo {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    display: grid; place-items: center; font-size: 15px; flex-shrink: 0;
+  }
+  .header-text h1 { font-size: 16px; font-weight: 700; line-height: 1.1; }
+  .header-text span { font-size: 10px; color: var(--muted); font-weight: 500; }
+  .set-btn {
+    margin-left: auto;
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,.1);
+    color: var(--text);
+    font-size: 13px; font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 20px;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+  }
+  .set-btn:active { opacity: .7; }
 
-  /* Video feed — fill box, crop to fit (object-fit:cover) */
-  #videoFeed{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+  /* ── Camera viewport — portrait 3:4 fills remaining space ── */
+  .camera-zone {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: #000;
+    /* clamp height so it doesn't overflow on wide screens */
+    min-height: 0;
+  }
+  #videoFeed {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  #previewImg {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: none;
+  }
+  #snapCanvas { display: none; }
 
-  /* Preview image — same crop behaviour so it matches video */
-  #previewImg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
-              display:none;background:#000}
+  /* Countdown */
+  .countdown-overlay {
+    position: absolute; inset: 0; z-index: 3;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.45);
+    opacity: 0; pointer-events: none;
+    transition: opacity .2s;
+  }
+  .countdown-overlay.active { opacity: 1; }
+  .countdown-num {
+    font-size: 96px; font-weight: 900; color: #fff;
+    text-shadow: 0 4px 20px rgba(0,0,0,.6);
+    font-variant-numeric: tabular-nums;
+  }
 
-  /* Canvas hidden — used only for pixel capture */
-  #snapCanvas{display:none}
+  /* Flash */
+  .flash-el {
+    position: absolute; inset: 0; z-index: 4;
+    background: #fff; opacity: 0; pointer-events: none;
+    transition: opacity .04s;
+  }
+  .flash-el.pop { opacity: .75; }
 
-  /* Countdown overlay */
-  .countdown-overlay{position:absolute;inset:0;display:flex;align-items:center;
-                     justify-content:center;background:rgba(0,0,0,.55);
-                     font-size:80px;font-weight:800;color:#fff;
-                     opacity:0;pointer-events:none;transition:opacity .25s;z-index:2}
-  .countdown-overlay.active{opacity:1}
+  /* Status badge */
+  .cam-badge {
+    position: absolute; top: 12px; left: 12px; z-index: 5;
+    font-size: 11px; font-weight: 700;
+    padding: 4px 11px; border-radius: 20px;
+    background: rgba(0,0,0,.55); color: var(--ok);
+    pointer-events: none; letter-spacing: .04em;
+  }
+  .cam-badge.preview { background: rgba(59,124,244,.75); color: #fff; }
 
-  /* Flash effect on capture */
-  .flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:3;
-         transition:opacity .05s}
-  .flash.pop{opacity:0.7}
+  /* Corner guides — receipt framing hints */
+  .guide { position: absolute; z-index: 2; pointer-events: none; }
+  .guide-tl { top: 28px; left: 28px; border-top: 3px solid rgba(255,255,255,.5); border-left: 3px solid rgba(255,255,255,.5); width: 28px; height: 28px; border-radius: 4px 0 0 0; }
+  .guide-tr { top: 28px; right: 28px; border-top: 3px solid rgba(255,255,255,.5); border-right: 3px solid rgba(255,255,255,.5); width: 28px; height: 28px; border-radius: 0 4px 0 0; }
+  .guide-bl { bottom: 28px; left: 28px; border-bottom: 3px solid rgba(255,255,255,.5); border-left: 3px solid rgba(255,255,255,.5); width: 28px; height: 28px; border-radius: 0 0 0 4px; }
+  .guide-br { bottom: 28px; right: 28px; border-bottom: 3px solid rgba(255,255,255,.5); border-right: 3px solid rgba(255,255,255,.5); width: 28px; height: 28px; border-radius: 0 0 4px 0; }
 
-  /* State badge over camera */
-  .cam-badge{position:absolute;top:10px;left:10px;font-size:11px;font-weight:700;
-             padding:4px 10px;border-radius:20px;z-index:4;pointer-events:none;
-             background:rgba(0,0,0,.6);color:var(--ok)}
-  .cam-badge.preview{background:rgba(59,124,244,.8);color:#fff}
+  /* ── Bottom bar — three buttons in one row ── */
+  .bottom-bar {
+    flex-shrink: 0;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px 18px;
+    background: var(--surface);
+    border-top: 1px solid rgba(255,255,255,.06);
+  }
 
-  /* ── Controls card ── */
-  .card{background:var(--card);border-radius:var(--r);
-        border:1px solid rgba(255,255,255,.07);padding:16px;
-        display:flex;flex-direction:column;gap:12px}
-  .card-title{font-size:12px;font-weight:700;color:var(--muted);
-              letter-spacing:.08em;text-transform:uppercase}
+  /* Side action buttons */
+  .side-btn {
+    padding: 12px 0;
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,.1);
+    color: var(--text);
+    font-size: 14px; font-weight: 700;
+    border-radius: 14px;
+    cursor: pointer;
+    transition: opacity .15s, transform .1s;
+    width: 100%;
+  }
+  .side-btn:active { transform: scale(.94); opacity: .7; }
+  .side-btn:disabled { opacity: .22; cursor: not-allowed; transform: none; }
+  #uploadBtn { background: var(--accent); border-color: transparent; color: #fff; }
 
-  .slider-row{display:flex;flex-direction:column;gap:6px}
-  .slider-label{display:flex;justify-content:space-between;align-items:center;font-size:14px}
-  .slider-value{background:var(--accent);color:#fff;font-size:12px;font-weight:700;
-                padding:2px 10px;border-radius:20px;min-width:40px;text-align:center}
-  .seg-control{display:grid;grid-template-columns:1fr 1fr 1fr;border-radius:10px;
-               overflow:hidden;border:1px solid rgba(255,255,255,.1)}
-  .seg-btn{padding:9px 0;font-size:14px;font-weight:600;text-align:center;
-           cursor:pointer;background:transparent;border:none;color:var(--muted);
-           transition:background .15s,color .15s}
-  .seg-btn:not(:last-child){border-right:1px solid rgba(255,255,255,.1)}
-  .seg-btn.active{background:var(--accent);color:#fff}
-  input[type="range"]{width:100%;height:4px;accent-color:var(--accent);
-                      cursor:pointer;border-radius:2px}
+  /* Shutter button — circle */
+  .shutter-outer {
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,.35);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: transform .1s;
+  }
+  .shutter-outer:active { transform: scale(.91); }
+  .shutter-outer:disabled { opacity: .3; cursor: not-allowed; }
+  .shutter-inner {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: #fff;
+    transition: background .15s, transform .1s;
+  }
+  .shutter-outer.counting .shutter-inner { background: var(--warn); }
+  .shutter-outer:disabled .shutter-inner { background: rgba(255,255,255,.3); }
 
-  /* ── Action buttons — ALWAYS VISIBLE below camera ── */
-  .action-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .action-row button{padding:14px 10px;border:none;border-radius:12px;
-                     font-size:15px;font-weight:700;cursor:pointer;
-                     transition:opacity .15s,transform .1s}
-  .action-row button:active{transform:scale(.96)}
-  .action-row button:disabled{opacity:.28;cursor:not-allowed;transform:none}
+  /* ── History panel — scrollable below bottom bar ──
+     Hidden on small phones to keep full-screen feel; shown when scrolled */
+  .history-panel {
+    position: fixed;
+    bottom: -100%;
+    left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 430px;
+    max-height: 55dvh;
+    background: var(--surface);
+    border-top: 1px solid rgba(255,255,255,.1);
+    border-radius: 20px 20px 0 0;
+    transition: bottom .35s cubic-bezier(.32,.72,0,1);
+    z-index: 20;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .history-panel.open { bottom: 0; }
+  .history-handle {
+    width: 36px; height: 4px; border-radius: 2px;
+    background: rgba(255,255,255,.2);
+    margin: 10px auto 0;
+    flex-shrink: 0;
+  }
+  .history-title {
+    font-size: 13px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .08em;
+    padding: 10px 16px 8px;
+    flex-shrink: 0;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .history-close {
+    background: none; border: none; color: var(--muted);
+    font-size: 18px; cursor: pointer; padding: 0 4px;
+  }
+  .history-scroll { overflow-y: auto; padding: 0 12px 16px; }
+  .hist-item {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; margin-bottom: 8px;
+    border: 1px solid rgba(255,255,255,.06);
+  }
+  .hist-icon { font-size: 20px; flex-shrink: 0; }
+  .hist-info { flex: 1; overflow: hidden; }
+  .hist-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hist-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .hist-badge { font-size: 10px; font-weight: 700; padding: 3px 7px; border-radius: 6px; flex-shrink: 0; }
+  .hist-badge.ok  { background: rgba(68,217,160,.15); color: var(--ok); }
+  .hist-badge.err { background: rgba(244,80,74,.15);  color: var(--err); }
 
-  #retakeBtn{background:rgba(255,255,255,.1);color:var(--text)}
-  #uploadBtn{background:var(--accent);color:#fff}
+  /* History open indicator in bottom bar */
+  .hist-count {
+    position: absolute; top: -4px; right: -4px;
+    background: var(--accent); color: #fff;
+    font-size: 10px; font-weight: 700;
+    width: 18px; height: 18px; border-radius: 50%;
+    display: none; align-items: center; justify-content: center;
+  }
+  .hist-count.show { display: flex; }
+  .history-trigger {
+    position: fixed; bottom: 110px; right: 16px;
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 50%; width: 42px; height: 42px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; cursor: pointer; z-index: 15;
+    box-shadow: 0 4px 16px rgba(0,0,0,.4);
+    transition: transform .1s;
+    max-width: 430px;
+  }
+  .history-trigger:active { transform: scale(.92); }
 
-  /* ── Shutter ── */
-  .shutter-wrap{display:flex;justify-content:center;padding:4px 0 4px}
-  #shutterBtn{width:76px;height:76px;border-radius:50%;
-              border:4px solid var(--accent2);background:transparent;cursor:pointer;
-              display:flex;align-items:center;justify-content:center;
-              transition:transform .1s;position:relative}
-  #shutterBtn::after{content:'';width:56px;height:56px;border-radius:50%;
-                     background:var(--accent2);transition:background .15s}
-  #shutterBtn:active{transform:scale(.93)}
-  #shutterBtn:disabled{opacity:.35;cursor:not-allowed}
-  #shutterBtn.counting::after{background:var(--warn)}
+  /* ── Settings popup ── */
+  .settings-overlay {
+    position: fixed; inset: 0; z-index: 30;
+    background: rgba(0,0,0,.6);
+    display: none; align-items: flex-end; justify-content: center;
+  }
+  .settings-overlay.open { display: flex; }
+  .settings-sheet {
+    width: 100%; max-width: 430px;
+    background: var(--surface);
+    border-radius: 24px 24px 0 0;
+    padding: 0 20px 32px;
+    border-top: 1px solid rgba(255,255,255,.1);
+  }
+  .settings-handle {
+    width: 36px; height: 4px; border-radius: 2px;
+    background: rgba(255,255,255,.2);
+    margin: 12px auto 16px;
+  }
+  .settings-title {
+    font-size: 16px; font-weight: 700;
+    margin-bottom: 20px; text-align: center;
+  }
+  .setting-row { margin-bottom: 20px; }
+  .setting-label {
+    display: flex; justify-content: space-between;
+    font-size: 14px; font-weight: 500; margin-bottom: 10px;
+  }
+  .setting-val {
+    background: var(--accent); color: #fff;
+    font-size: 12px; font-weight: 700;
+    padding: 2px 10px; border-radius: 20px; min-width: 36px; text-align: center;
+  }
+  .seg-control {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    border-radius: 12px; overflow: hidden;
+    border: 1px solid rgba(255,255,255,.1);
+  }
+  .seg-btn {
+    padding: 11px 0; font-size: 15px; font-weight: 600;
+    text-align: center; cursor: pointer;
+    background: transparent; border: none; color: var(--muted);
+    transition: background .15s, color .15s;
+  }
+  .seg-btn:not(:last-child) { border-right: 1px solid rgba(255,255,255,.1); }
+  .seg-btn.active { background: var(--accent); color: #fff; }
+  input[type="range"] {
+    width: 100%; height: 4px;
+    accent-color: var(--accent); cursor: pointer; border-radius: 2px;
+  }
+  .timer-labels {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--muted); margin-top: 6px;
+  }
+  .close-settings {
+    width: 100%; padding: 14px;
+    background: var(--card); border: 1px solid rgba(255,255,255,.1);
+    color: var(--text); font-size: 15px; font-weight: 600;
+    border-radius: 14px; cursor: pointer; margin-top: 8px;
+  }
 
-  /* ── Log panel ── */
-  .log-panel{background:var(--surface);border-radius:var(--r);
-             border:1px solid rgba(255,255,255,.07);overflow:hidden}
-  .log-header{display:flex;align-items:center;justify-content:space-between;
-              padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06)}
-  .log-header span{font-size:12px;font-weight:700;color:var(--muted);
-                   letter-spacing:.08em;text-transform:uppercase}
-  .log-actions{display:flex;gap:6px}
-  .log-btn{font-size:10px;background:rgba(255,255,255,.08);border:none;
-           color:var(--muted);padding:3px 8px;border-radius:6px;cursor:pointer}
-  #logBox{height:180px;overflow-y:auto;padding:10px 12px;font-size:12px;
-          font-family:'Courier New',monospace;line-height:1.7;background:rgba(0,0,0,.3)}
-  .ll-info{color:var(--text)} .ll-ok{color:var(--ok)} .ll-err{color:var(--err)}
-  .ll-warn{color:var(--warn)} .ll-step{color:var(--step);font-weight:700}
+  /* ── Overlay backdrop for history ── */
+  .hist-overlay {
+    position: fixed; inset: 0; z-index: 19;
+    display: none;
+  }
+  .hist-overlay.open { display: block; }
 
-  .status-mini{display:flex;gap:6px;padding:8px 14px;
-               border-top:1px solid rgba(255,255,255,.05);flex-wrap:wrap}
-  .status-pill{font-size:11px;padding:3px 9px;border-radius:12px;font-weight:600}
-  .pill-cam {background:rgba(68,217,160,.12);color:var(--ok)}
-  .pill-drive{background:rgba(59,124,244,.12);color:var(--accent)}
-  .pill-err {background:rgba(244,80,74,.12); color:var(--err)}
-  .pill-wait{background:rgba(107,120,153,.12);color:var(--muted)}
-
-  /* ── History ── */
-  .history{display:flex;flex-direction:column;gap:8px}
-  .hist-item{background:var(--surface);border-radius:10px;
-             border:1px solid rgba(255,255,255,.06);padding:10px 12px;
-             display:flex;align-items:center;gap:10px;font-size:13px}
-  .hist-icon{font-size:20px;flex-shrink:0}
-  .hist-info{flex:1;overflow:hidden}
-  .hist-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .hist-meta{font-size:11px;color:var(--muted);margin-top:2px}
-  .hist-badge{font-size:10px;font-weight:700;padding:3px 7px;border-radius:6px;flex-shrink:0}
-  .hist-badge.ok {background:rgba(68,217,160,.15);color:var(--ok)}
-  .hist-badge.err{background:rgba(244,80,74,.15); color:var(--err)}
-  .hist-badge.dry{background:rgba(59,124,244,.15);color:var(--accent)}
+  /* ── Toast notification ── */
+  .toast {
+    position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+    background: var(--card); border: 1px solid rgba(255,255,255,.12);
+    color: var(--text); font-size: 13px; font-weight: 600;
+    padding: 10px 20px; border-radius: 24px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.5);
+    z-index: 50;
+    opacity: 0; pointer-events: none;
+    transition: opacity .2s;
+    white-space: nowrap;
+  }
+  .toast.show { opacity: 1; }
+  .toast.ok   { border-color: var(--ok); color: var(--ok); }
+  .toast.err  { border-color: var(--err); color: var(--err); }
 </style>
 </head>
 <body>
 
-<header>
-  <div class="logo">📋</div>
-  <div>
-    <h1>Continental</h1>
-    <span>Agent 1 · Receipt Capture</span>
-  </div>
-  <a class="debug-link" href="/debug/auth" target="_blank">🔍 Auth</a>
-</header>
+<div class="app">
 
-<main>
-
-  <!-- ── Camera viewport ── -->
-  <div class="camera-wrap">
-    <video id="videoFeed" autoplay playsinline muted></video>
-    <img id="previewImg" alt="Captured preview">
-    <canvas id="snapCanvas"></canvas>
-    <div class="countdown-overlay" id="countdownOverlay">
-      <span id="countdownNum"></span>
+  <!-- ── Header ── -->
+  <header>
+    <div class="logo">📋</div>
+    <div class="header-text">
+      <h1>Continental</h1>
+      <span>Receipt Capture · Agent 1</span>
     </div>
-    <div class="flash" id="flashEl"></div>
+    <button class="set-btn" id="setBtn">⚙ Settings</button>
+  </header>
+
+  <!-- ── Camera zone ── -->
+  <div class="camera-zone" id="cameraZone">
+    <video id="videoFeed" autoplay playsinline muted></video>
+    <img id="previewImg" alt="Preview">
+    <canvas id="snapCanvas"></canvas>
+
+    <div class="countdown-overlay" id="countdownOverlay">
+      <span class="countdown-num" id="countdownNum"></span>
+    </div>
+    <div class="flash-el" id="flashEl"></div>
     <div class="cam-badge" id="camBadge">● LIVE</div>
+
+    <!-- Receipt corner guides -->
+    <div class="guide guide-tl"></div>
+    <div class="guide guide-tr"></div>
+    <div class="guide guide-bl"></div>
+    <div class="guide guide-br"></div>
   </div>
 
-  <!-- ── Retake / Upload — ALWAYS VISIBLE, enabled after capture ── -->
-  <div class="action-row">
-    <button id="retakeBtn" disabled>↩ Retake</button>
-    <button id="uploadBtn" disabled>✓ Upload</button>
+  <!-- ── Bottom bar ── -->
+  <div class="bottom-bar">
+    <button class="side-btn" id="retakeBtn" disabled>↩ Retake</button>
+
+    <button class="shutter-outer" id="shutterBtn" disabled>
+      <div class="shutter-inner"></div>
+    </button>
+
+    <button class="side-btn" id="uploadBtn" disabled>Upload ✓</button>
   </div>
 
-  <!-- ── Camera controls ── -->
-  <div class="card">
-    <div class="card-title">Camera Controls</div>
-    <div class="slider-row">
-      <div class="slider-label"><span>📍 Zoom</span></div>
+</div><!-- .app -->
+
+<!-- History trigger FAB -->
+<button class="history-trigger" id="histTrigger" title="Upload history">
+  🧾
+  <span class="hist-count" id="histCount">0</span>
+</button>
+
+<!-- History panel (bottom sheet) -->
+<div class="hist-overlay" id="histOverlay"></div>
+<div class="history-panel" id="histPanel">
+  <div class="history-handle"></div>
+  <div class="history-title">
+    Upload History
+    <button class="history-close" id="histClose">✕</button>
+  </div>
+  <div class="history-scroll" id="historyList">
+    <div id="histPlaceholder" style="font-size:13px;color:var(--muted);text-align:center;padding:16px 0">
+      No uploads yet this session.
+    </div>
+  </div>
+</div>
+
+<!-- Settings bottom sheet -->
+<div class="settings-overlay" id="settingsOverlay">
+  <div class="settings-sheet">
+    <div class="settings-handle"></div>
+    <div class="settings-title">⚙ Camera Settings</div>
+
+    <div class="setting-row">
+      <div class="setting-label">
+        <span>📍 Zoom Level</span>
+      </div>
       <div class="seg-control" id="zoomSeg">
         <button class="seg-btn active" data-zoom="1">1×</button>
         <button class="seg-btn"        data-zoom="2">2×</button>
         <button class="seg-btn"        data-zoom="3">3×</button>
       </div>
     </div>
-    <div class="slider-row">
-      <div class="slider-label">
+
+    <div class="setting-row">
+      <div class="setting-label">
         <span>⏱ Shutter Delay</span>
-        <span class="slider-value" id="timerLabel">3 s</span>
+        <span class="setting-val" id="timerLabel">3 s</span>
       </div>
       <input type="range" id="timerSlider" min="0" max="1" step="1" value="0">
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);padding:0 2px">
-        <span>3 sec</span><span>5 sec</span>
-      </div>
+      <div class="timer-labels"><span>3 sec</span><span>5 sec</span></div>
     </div>
-  </div>
 
-  <!-- ── Shutter ── -->
-  <div class="shutter-wrap">
-    <button id="shutterBtn" title="Take Photo"></button>
+    <button class="close-settings" id="closeSettings">Done</button>
   </div>
+</div>
 
-  <!-- ── Diagnostic log ── -->
-  <div class="log-panel">
-    <div class="log-header">
-      <span>📟 Diagnostic Log</span>
-      <div class="log-actions">
-        <button class="log-btn" id="copyLogBtn">Copy</button>
-        <button class="log-btn" id="clearLogBtn">Clear</button>
-      </div>
-    </div>
-    <div id="logBox"></div>
-    <div class="status-mini" id="statusMini">
-      <span class="status-pill pill-wait" id="pillCam">📷 Camera: init</span>
-      <span class="status-pill pill-wait" id="pillDrive">☁ Drive: idle</span>
-    </div>
-  </div>
-
-  <!-- ── History ── -->
-  <div class="card">
-    <div class="card-title">Upload History · Session</div>
-    <div class="history" id="historyList">
-      <div id="histPlaceholder" style="font-size:13px;color:var(--muted);text-align:center;padding:8px 0">
-        No uploads yet this session.
-      </div>
-    </div>
-  </div>
-
-</main>
+<!-- Toast -->
+<div class="toast" id="toast"></div>
 
 <script>
-// ── State ───────────────────────────────────────────────────────────────────
+// ── State ────────────────────────────────────────────────────────────────────
 const S = {
   stream: null, videoTrack: null,
   zoomLevel: 1, timerSeconds: 3,
   capturedBlob: null, uploading: false,
-  mode: 'live',  // 'live' | 'preview'
+  uploadCount: 0,
 };
 
-// ── DOM refs ─────────────────────────────────────────────────────────────────
+// ── DOM ──────────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const video        = $('videoFeed');
-const previewImg   = $('previewImg');
-const snapCanvas   = $('snapCanvas');
+const video          = $('videoFeed');
+const previewImg     = $('previewImg');
+const snapCanvas     = $('snapCanvas');
 const countdownOverlay = $('countdownOverlay');
-const countdownNum = $('countdownNum');
-const flashEl      = $('flashEl');
-const camBadge     = $('camBadge');
-const shutterBtn   = $('shutterBtn');
-const retakeBtn    = $('retakeBtn');
-const uploadBtn    = $('uploadBtn');
-const zoomSeg      = $('zoomSeg');
-const timerSlider  = $('timerSlider');
-const timerLabel   = $('timerLabel');
-const logBox       = $('logBox');
-const pillCam      = $('pillCam');
-const pillDrive    = $('pillDrive');
+const countdownNum   = $('countdownNum');
+const flashEl        = $('flashEl');
+const camBadge       = $('camBadge');
+const shutterBtn     = $('shutterBtn');
+const retakeBtn      = $('retakeBtn');
+const uploadBtn      = $('uploadBtn');
+const zoomSeg        = $('zoomSeg');
+const timerSlider    = $('timerSlider');
+const timerLabel     = $('timerLabel');
+const setBtn         = $('setBtn');
+const settingsOverlay= $('settingsOverlay');
+const closeSettings  = $('closeSettings');
+const histTrigger    = $('histTrigger');
+const histPanel      = $('histPanel');
+const histOverlay    = $('histOverlay');
+const histClose      = $('histClose');
+const histCount      = $('histCount');
+const toastEl        = $('toast');
 
-// ── Logger ───────────────────────────────────────────────────────────────────
-function addLog(level, msg) {
-  const ts   = new Date().toTimeString().slice(0, 8);
-  const line = document.createElement('div');
-  line.className = `ll-${level}`;
-  line.textContent = `[${ts}] ${msg}`;
-  logBox.appendChild(line);
-  logBox.scrollTop = logBox.scrollHeight;
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg, type = '', dur = 2800) {
+  toastEl.textContent = msg;
+  toastEl.className = `toast show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.className = 'toast', dur);
 }
-function injectServerLog(entries) {
-  (entries || []).forEach(e => addLog(e.level === 'ok' ? 'ok' : e.level, `[SRV] ${e.msg}`));
+
+// ── Audio engine ─────────────────────────────────────────────────────────────
+const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTick() {
+  // Mechanical tick sound — sharp click
+  if (ctx.state === 'suspended') ctx.resume();
+  const buf = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.004));
+  }
+  const src  = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  src.buffer = buf;
+  src.connect(gain); gain.connect(ctx.destination);
+  gain.gain.value = 0.6;
+  src.start();
 }
-function setPill(el, cls, text) { el.className = `status-pill ${cls}`; el.textContent = text; }
 
-$('clearLogBtn').addEventListener('click', () => logBox.innerHTML = '');
-$('copyLogBtn').addEventListener('click', () => {
-  const text = [...logBox.querySelectorAll('div')].map(d => d.textContent).join('\n');
-  navigator.clipboard.writeText(text).then(() => addLog('ok', 'Log copied to clipboard'));
-});
-
-// ── Audio ─────────────────────────────────────────────────────────────────────
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-function beep(freq = 880, dur = 120, type = 'sine') {
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-  o.connect(g); g.connect(audioCtx.destination);
-  o.type = type; o.frequency.value = freq;
-  g.gain.setValueAtTime(0.4, audioCtx.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur / 1000);
-  o.start(); o.stop(audioCtx.currentTime + dur / 1000);
+function playShutter() {
+  // Camera shutter — two-part mechanical sound
+  if (ctx.state === 'suspended') ctx.resume();
+  // Part 1: click
+  const makeNoise = (startTime, gainVal, decay) => {
+    const buf  = ctx.createBuffer(1, ctx.sampleRate * 0.06, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++)
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * decay));
+    const src  = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    src.buffer = buf;
+    src.connect(gain); gain.connect(ctx.destination);
+    gain.gain.value = gainVal;
+    src.start(startTime);
+  };
+  makeNoise(ctx.currentTime,       0.8, 0.003);
+  makeNoise(ctx.currentTime + 0.06, 0.5, 0.006);
 }
-const shutterSound = () => { beep(1200, 80); setTimeout(() => beep(900, 60), 90); };
-const successSound = () => { beep(660, 100); setTimeout(() => beep(880, 120), 110); };
-const errorSound   = () => beep(300, 200, 'sawtooth');
 
-// ── Camera ────────────────────────────────────────────────────────────────────
+function playSuccess() {
+  if (ctx.state === 'suspended') ctx.resume();
+  [[523, 0, 80], [659, 0.1, 80], [784, 0.2, 120]].forEach(([freq, delay, dur]) => {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type = 'sine'; o.frequency.value = freq;
+    const t = ctx.currentTime + delay;
+    g.gain.setValueAtTime(0.3, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur / 1000);
+    o.start(t); o.stop(t + dur / 1000);
+  });
+}
+
+function playError() {
+  if (ctx.state === 'suspended') ctx.resume();
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.connect(g); g.connect(ctx.destination);
+  o.type = 'sawtooth'; o.frequency.value = 220;
+  g.gain.setValueAtTime(0.3, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+  o.start(); o.stop(ctx.currentTime + 0.3);
+}
+
+// Prime audio context on first user gesture
+document.addEventListener('touchstart', () => ctx.resume(), { once: true });
+document.addEventListener('click',      () => ctx.resume(), { once: true });
+
+// ── Camera init ───────────────────────────────────────────────────────────────
 async function startCamera() {
-  addLog('step', '--- CAMERA INIT ---');
-  setPill(pillCam, 'pill-wait', '📷 Camera: starting…');
   try {
     S.stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
+      video: {
+        facingMode: { ideal: 'environment' },
+        width:  { ideal: 4032 },
+        height: { ideal: 3024 },
+      },
       audio: false,
     });
     video.srcObject = S.stream;
     S.videoTrack = S.stream.getVideoTracks()[0];
     await video.play();
-    const settings = S.videoTrack.getSettings();
-    addLog('ok', `Camera ready — ${settings.width}×${settings.height}`);
-    addLog('info', `Facing: ${settings.facingMode || 'unknown'}`);
-    setPill(pillCam, 'pill-cam', '📷 Camera: ready ✓');
     shutterBtn.disabled = false;
     setMode('live');
     applyZoom(S.zoomLevel);
+    const set = S.videoTrack.getSettings();
+    camBadge.textContent = '● LIVE';
   } catch (err) {
-    addLog('err', `Camera failed: ${err.name} — ${err.message}`);
-    setPill(pillCam, 'pill-err', `📷 ${err.name}`);
-    errorSound();
+    camBadge.textContent = '✗ No Camera';
+    camBadge.style.color = 'var(--err)';
+    showToast(`Camera error: ${err.name}`, 'err', 5000);
   }
 }
 
-// ── Mode switch (live video ↔ preview image) ──────────────────────────────────
+// ── Mode: live ↔ preview ──────────────────────────────────────────────────────
 function setMode(mode) {
-  S.mode = mode;
   if (mode === 'live') {
     video.style.display      = 'block';
     previewImg.style.display = 'none';
@@ -335,7 +591,7 @@ function setMode(mode) {
   } else {
     video.style.display      = 'none';
     previewImg.style.display = 'block';
-    camBadge.textContent     = '📸 PREVIEW';
+    camBadge.textContent     = '📸 PREVIEW — tap Upload or Retake';
     camBadge.className       = 'cam-badge preview';
     shutterBtn.disabled      = true;
     retakeBtn.disabled       = false;
@@ -350,11 +606,8 @@ async function applyZoom(level) {
     const caps = S.videoTrack.getCapabilities();
     if (caps.zoom) {
       await S.videoTrack.applyConstraints({ advanced: [{ zoom: Math.min(level, caps.zoom.max) }] });
-      addLog('info', `Zoom: ${level}×`);
-    } else {
-      addLog('warn', 'Zoom not supported on this device/browser');
     }
-  } catch (e) { addLog('warn', `Zoom error: ${e.message}`); }
+  } catch (_) {}
 }
 
 zoomSeg.querySelectorAll('.seg-btn').forEach(btn => {
@@ -363,7 +616,6 @@ zoomSeg.querySelectorAll('.seg-btn').forEach(btn => {
     btn.classList.add('active');
     S.zoomLevel = parseFloat(btn.dataset.zoom);
     applyZoom(S.zoomLevel);
-    beep(600, 50);
   });
 });
 
@@ -373,67 +625,76 @@ timerSlider.addEventListener('input', () => {
   timerLabel.textContent = `${S.timerSeconds} s`;
 });
 
-// ── Capture — captures exactly what the video box shows (crop-matched) ────────
+// ── Settings popup ────────────────────────────────────────────────────────────
+setBtn.addEventListener('click', () => settingsOverlay.classList.add('open'));
+closeSettings.addEventListener('click', () => settingsOverlay.classList.remove('open'));
+settingsOverlay.addEventListener('click', e => {
+  if (e.target === settingsOverlay) settingsOverlay.classList.remove('open');
+});
+
+// ── History panel ─────────────────────────────────────────────────────────────
+histTrigger.addEventListener('click', () => {
+  histPanel.classList.add('open');
+  histOverlay.classList.add('open');
+});
+const closeHist = () => {
+  histPanel.classList.remove('open');
+  histOverlay.classList.remove('open');
+};
+histClose.addEventListener('click', closeHist);
+histOverlay.addEventListener('click', closeHist);
+
+// ── Shutter ───────────────────────────────────────────────────────────────────
 shutterBtn.addEventListener('click', async () => {
   if (S.uploading) return;
-  addLog('step', '--- SHUTTER PRESSED ---');
+  ctx.resume();
   shutterBtn.disabled = true;
   shutterBtn.classList.add('counting');
   countdownOverlay.classList.add('active');
 
   for (let i = S.timerSeconds; i >= 1; i--) {
     countdownNum.textContent = i;
-    beep(i === 1 ? 1200 : 800, 100);
+    playTick();
     await sleep(1000);
   }
+
   countdownOverlay.classList.remove('active');
   shutterBtn.classList.remove('counting');
 
-  // ── FIX: capture the VISIBLE crop, not the full raw frame ──────────────
-  // The video element renders with object-fit:cover inside a 4:3 box.
-  // We replicate that crop on the canvas so preview matches what was seen.
-  const boxW  = video.clientWidth;
-  const boxH  = video.clientHeight;
-  const rawW  = video.videoWidth  || boxW;
-  const rawH  = video.videoHeight || boxH;
+  // Capture visible crop (matches object-fit:cover display)
+  const zone = $('cameraZone');
+  const boxW = zone.clientWidth;
+  const boxH = zone.clientHeight;
+  const rawW = video.videoWidth  || boxW;
+  const rawH = video.videoHeight || boxH;
   const boxAR = boxW / boxH;
   const rawAR = rawW / rawH;
 
   let sx, sy, sw, sh;
   if (rawAR > boxAR) {
-    // Raw is wider than box → crop left/right
-    sh = rawH;
-    sw = rawH * boxAR;
-    sx = (rawW - sw) / 2;
-    sy = 0;
+    sh = rawH; sw = rawH * boxAR; sx = (rawW - sw) / 2; sy = 0;
   } else {
-    // Raw is taller than box → crop top/bottom
-    sw = rawW;
-    sh = rawW / boxAR;
-    sx = 0;
-    sy = (rawH - sh) / 2;
+    sw = rawW; sh = rawW / boxAR; sx = 0; sy = (rawH - sh) / 2;
   }
 
-  // Output canvas matches the display box size (retina: cap at 2× for perf)
   const scale = Math.min(window.devicePixelRatio || 1, 2);
   snapCanvas.width  = boxW * scale;
   snapCanvas.height = boxH * scale;
-  const ctx = snapCanvas.getContext('2d');
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, snapCanvas.width, snapCanvas.height);
+  snapCanvas.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, snapCanvas.width, snapCanvas.height);
 
-  // Flash effect
+  // Flash + sound
   flashEl.classList.add('pop');
-  setTimeout(() => flashEl.classList.remove('pop'), 150);
-  shutterSound();
+  setTimeout(() => flashEl.classList.remove('pop'), 120);
+  playShutter();
 
   snapCanvas.toBlob(blob => {
-    if (!blob) { addLog('err', 'Canvas toBlob failed — try again'); setMode('live'); return; }
-    S.capturedBlob   = blob;
-    previewImg.src   = URL.createObjectURL(blob);
+    if (!blob) { setMode('live'); showToast('Capture failed — try again', 'err'); return; }
+    S.capturedBlob = blob;
+    if (previewImg.src) URL.revokeObjectURL(previewImg.src);
+    previewImg.src = URL.createObjectURL(blob);
     setMode('preview');
-    addLog('ok', `Captured: ${snapCanvas.width}×${snapCanvas.height}px (${(blob.size/1024).toFixed(1)} KB)`);
-    addLog('info', 'Review preview → tap Upload to send, or Retake');
-  }, 'image/jpeg', 0.92);
+    showToast('Photo captured — review and tap Upload');
+  }, 'image/jpeg', 0.93);
 });
 
 // ── Retake ────────────────────────────────────────────────────────────────────
@@ -441,51 +702,36 @@ retakeBtn.addEventListener('click', () => {
   if (previewImg.src) URL.revokeObjectURL(previewImg.src);
   S.capturedBlob = null;
   setMode('live');
-  addLog('info', 'Retake — preview discarded');
-  beep(500, 60);
 });
 
 // ── Upload ────────────────────────────────────────────────────────────────────
 uploadBtn.addEventListener('click', async () => {
   if (!S.capturedBlob || S.uploading) return;
-  S.uploading  = true;
+  S.uploading = true;
   uploadBtn.disabled  = true;
   retakeBtn.disabled  = true;
-  setPill(pillDrive, 'pill-drive', '☁ Drive: uploading…');
-  addLog('step', '--- UPLOAD START ---');
+  showToast('☁ Uploading to Drive…');
 
   const fd = new FormData();
   fd.append('photo', S.capturedBlob, `receipt_${Date.now()}.jpg`);
 
   try {
-    addLog('info', 'POST /upload → sending…');
     const res  = await fetch('/upload', { method: 'POST', body: fd });
     const data = await res.json();
-    addLog('info', `Server responded: HTTP ${res.status}`);
-    if (data.log) injectServerLog(data.log);
 
     if (data.success) {
-      setPill(pillDrive, data.dryRun ? 'pill-drive' : 'pill-cam',
-              `☁ ${data.dryRun ? 'DRY RUN ✓' : 'UPLOADED ✓'}`);
-      successSound();
+      playSuccess();
       addHistoryItem(data);
       if (previewImg.src) URL.revokeObjectURL(previewImg.src);
       S.capturedBlob = null;
       setMode('live');
-      addLog('ok', `=== DONE: ${data.fileName} ===`);
+      showToast(data.dryRun ? '✓ Dry-run complete' : '✓ Receipt saved to Drive!', 'ok');
     } else {
-      addLog('err', `Server error: ${data.error}`);
-      if (data.hint) addLog('warn', `Hint: ${data.hint}`);
-      setPill(pillDrive, 'pill-err', '☁ Drive: FAILED');
-      errorSound();
-      retakeBtn.disabled = false;
-      uploadBtn.disabled = false;
+      throw new Error(data.hint || data.error || 'Upload failed');
     }
   } catch (err) {
-    addLog('err', `Fetch failed: ${err.message}`);
-    addLog('warn', 'Server may be asleep (Render cold start). Wait 30s and try again.');
-    setPill(pillDrive, 'pill-err', '☁ Network error');
-    errorSound();
+    playError();
+    showToast(`✗ ${err.message}`, 'err', 5000);
     retakeBtn.disabled = false;
     uploadBtn.disabled = false;
   } finally {
@@ -496,6 +742,10 @@ uploadBtn.addEventListener('click', async () => {
 // ── History ───────────────────────────────────────────────────────────────────
 function addHistoryItem(data) {
   $('histPlaceholder')?.remove();
+  S.uploadCount++;
+  histCount.textContent = S.uploadCount;
+  histCount.classList.add('show');
+
   const item = document.createElement('div');
   item.className = 'hist-item';
   item.innerHTML = `
@@ -504,7 +754,7 @@ function addHistoryItem(data) {
       <div class="hist-name">${data.fileName || 'receipt'}</div>
       <div class="hist-meta">${new Date().toLocaleTimeString()} · ${data.rowId?.slice(0,8) || '—'}</div>
     </div>
-    <span class="hist-badge ${data.dryRun ? 'dry' : 'ok'}">${data.dryRun ? 'DRY RUN' : 'SYNCED'}</span>`;
+    <span class="hist-badge ${data.dryRun ? '' : 'ok'}">${data.dryRun ? 'DRY RUN' : '✓ SYNCED'}</span>`;
   $('historyList').prepend(item);
 }
 
@@ -512,10 +762,7 @@ function addHistoryItem(data) {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-shutterBtn.disabled = true;
 setMode('live');
-addLog('step', '=== Continental Agent 1 Loaded ===');
-addLog('info', 'Tap /debug/auth to inspect credentials');
 startCamera();
 </script>
 </body>
