@@ -1,6 +1,7 @@
 // drive.js — Continental Agent 1
-// Auth pattern: credentials.json (client_id/secret) + GOOGLE_TOKEN_JSON (refresh_token)
-// This matches the standard Google OAuth2 quickstart pattern used in Gmail-to-PDF.
+// Credential loading priority:
+//   1. GOOGLE_CREDENTIALS_JSON env var  (Render.com / production)
+//   2. credentials.json file            (local development fallback)
 
 const { google } = require('googleapis');
 const fs   = require('fs');
@@ -9,59 +10,87 @@ const path = require('path');
 let _driveClient         = null;
 let _continentalFolderId = null;
 
+// ── Load credentials (env-first, file fallback) ────────────────────────────
+function loadCredentials() {
+  // Priority 1: Render env var
+  if (process.env.GOOGLE_CREDENTIALS_JSON) {
+    try {
+      const parsed = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+      console.log('[Auth] credentials source: GOOGLE_CREDENTIALS_JSON env var');
+      return parsed;
+    } catch (e) {
+      throw new Error('GOOGLE_CREDENTIALS_JSON is not valid JSON: ' + e.message);
+    }
+  }
+
+  // Priority 2: local credentials.json file
+  const credPath = path.join(__dirname, 'credentials.json');
+  if (fs.existsSync(credPath)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(credPath, 'utf8'));
+      console.log('[Auth] credentials source: credentials.json (local file)');
+      return parsed;
+    } catch (e) {
+      throw new Error('credentials.json is not valid JSON: ' + e.message);
+    }
+  }
+
+  throw new Error(
+    'No credentials found. Set GOOGLE_CREDENTIALS_JSON env var on Render, ' +
+    'or place credentials.json in the project root for local development.'
+  );
+}
+
 // ── Credential Inspector (safe — never logs secret values) ─────────────────
 function inspectCredentials() {
   const report = { ok: false, steps: {} };
 
-  // 1. Check credentials.json
-  const credPath = path.join(__dirname, 'credentials.json');
-  if (!fs.existsSync(credPath)) {
-    report.steps.credentials_json = '✗ MISSING — place credentials.json in project root';
-    report.error = 'credentials.json not found';
-    return report;
-  }
-  let creds;
+  // 1. Check credentials source
+  let raw;
   try {
-    creds = JSON.parse(fs.readFileSync(credPath, 'utf8'));
-  } catch(e) {
-    report.steps.credentials_json = `✗ JSON parse error: ${e.message}`;
-    report.error = 'credentials.json is not valid JSON';
+    raw = loadCredentials();
+  } catch (e) {
+    report.steps.credentials = `✗ ${e.message}`;
+    report.error = e.message;
     return report;
   }
 
-  // credentials.json can be wrapped in a "web" or "installed" key
-  const inner = creds.web || creds.installed || creds;
-  report.steps.credentials_json = {
-    found:         '✓',
+  const inner = raw.web || raw.installed || raw;
+  const source = process.env.GOOGLE_CREDENTIALS_JSON
+    ? 'GOOGLE_CREDENTIALS_JSON (env var)'
+    : 'credentials.json (local file)';
+
+  report.steps.credentials = {
+    source,
+    wrapper_key:   raw.web ? '"web"' : raw.installed ? '"installed"' : '(flat)',
     client_id:     inner.client_id     ? '✓ present' : '✗ MISSING',
     client_secret: inner.client_secret ? '✓ present' : '✗ MISSING',
-    wrapper_key:   creds.web ? '"web"' : creds.installed ? '"installed"' : '(flat)',
   };
 
   if (!inner.client_id || !inner.client_secret) {
-    report.error = 'credentials.json is missing client_id or client_secret';
+    report.error = 'credentials missing client_id or client_secret';
     return report;
   }
 
   // 2. Check GOOGLE_TOKEN_JSON
-  const raw = process.env.GOOGLE_TOKEN_JSON;
-  if (!raw) {
-    report.steps.google_token_json = '✗ Not set in .env';
+  const tokenRaw = process.env.GOOGLE_TOKEN_JSON;
+  if (!tokenRaw) {
+    report.steps.google_token_json = '✗ Not set';
     report.error = 'GOOGLE_TOKEN_JSON not set';
     return report;
   }
+
   let tok;
-  try { tok = JSON.parse(raw); }
-  catch(e) {
+  try { tok = JSON.parse(tokenRaw); }
+  catch (e) {
     report.steps.google_token_json = `✗ JSON parse error: ${e.message}`;
     report.error = 'GOOGLE_TOKEN_JSON is not valid JSON';
     return report;
   }
 
   report.steps.google_token_json = {
-    refresh_token: tok.refresh_token ? '✓ present' : '✗ MISSING — this is required',
-    access_token:  tok.access_token  ? '✓ present (bonus, will be refreshed)' : '— not present (ok)',
-    type_field:    tok.type          ? `"${tok.type}"` : '— not present (ok, not needed here)',
+    refresh_token: tok.refresh_token ? '✓ present' : '✗ MISSING — required',
+    access_token:  tok.access_token  ? '✓ present (will be refreshed)' : '— not present (ok)',
   };
 
   if (!tok.refresh_token) {
@@ -69,32 +98,32 @@ function inspectCredentials() {
     return report;
   }
 
+  // 3. Environment summary
+  report.steps.environment = {
+    GOOGLE_DRIVE_ACTIVE:    process.env.GOOGLE_DRIVE_ACTIVE || '(not set)',
+    GD_PARENT_FOLDER_NAME:  process.env.GD_PARENT_FOLDER_NAME || 'Continental (default)',
+    credentials_source:     source,
+  };
+
   report.ok      = true;
-  report.summary = 'Both credentials.json and GOOGLE_TOKEN_JSON look good. Auth should work.';
+  report.summary = 'All credentials present. Auth should succeed.';
   return report;
 }
 
 // ── Build Auth Client ───────────────────────────────────────────────────────
 async function buildAuth() {
-  // Load client_id + client_secret from credentials.json
-  const credPath = path.join(__dirname, 'credentials.json');
-  if (!fs.existsSync(credPath)) {
-    throw new Error('credentials.json not found in project root. Copy it from Google Cloud Console.');
-  }
-  const raw  = JSON.parse(fs.readFileSync(credPath, 'utf8'));
-  const cred = raw.web || raw.installed || raw; // handle wrapped or flat format
+  const raw   = loadCredentials();
+  const cred  = raw.web || raw.installed || raw;
 
-  console.log(`[Auth] credentials.json loaded — client_id: ${cred.client_id?.slice(0, 24)}…`);
+  console.log(`[Auth] client_id: ${cred.client_id?.slice(0, 24)}…`);
 
-  // Load refresh_token from GOOGLE_TOKEN_JSON env var
   const tokenRaw = process.env.GOOGLE_TOKEN_JSON;
-  if (!tokenRaw) throw new Error('GOOGLE_TOKEN_JSON is not set in .env');
+  if (!tokenRaw) throw new Error('GOOGLE_TOKEN_JSON is not set');
   const tok = JSON.parse(tokenRaw);
-  if (!tok.refresh_token) throw new Error('GOOGLE_TOKEN_JSON has no refresh_token field');
+  if (!tok.refresh_token) throw new Error('GOOGLE_TOKEN_JSON has no refresh_token');
 
-  console.log(`[Auth] Token loaded — refresh_token: ${tok.refresh_token.slice(0, 16)}…`);
+  console.log(`[Auth] refresh_token: ${tok.refresh_token.slice(0, 16)}…`);
 
-  // Build OAuth2 client
   const oauth2 = new google.auth.OAuth2(
     cred.client_id,
     cred.client_secret,
@@ -105,21 +134,15 @@ async function buildAuth() {
     ...(tok.access_token ? { access_token: tok.access_token } : {}),
   });
 
-  // Force a token refresh NOW — fail fast if credentials are wrong
   console.log('[Auth] Validating — forcing token refresh…');
   try {
     const result = await oauth2.refreshAccessToken();
     console.log(`[Auth] ✓ Token refresh OK — access_token: ${result.credentials.access_token?.slice(0, 20)}…`);
-  } catch(err) {
+  } catch (err) {
     const code = err.response?.data?.error;
-    console.error(`[Auth] ✗ Token refresh FAILED: ${code || err.message}`);
-    if (code === 'invalid_client') {
-      throw new Error('Auth failed: invalid_client — client_id or client_secret in credentials.json is wrong or the OAuth app was deleted.');
-    }
-    if (code === 'invalid_grant') {
-      throw new Error('Auth failed: invalid_grant — refresh_token has expired or been revoked. Re-run the OAuth flow to get a new token.');
-    }
-    throw new Error(`Auth failed: ${code || err.message}`);
+    if (code === 'invalid_client') throw new Error('Auth: invalid_client — check client_id/client_secret in credentials.');
+    if (code === 'invalid_grant')  throw new Error('Auth: invalid_grant — refresh_token expired or revoked. Re-authorise.');
+    throw new Error(`Auth: ${code || err.message}`);
   }
 
   return oauth2;
@@ -140,8 +163,7 @@ async function findOrCreateFolder(drive, name, parentId = null) {
   console.log(`[Drive] Looking for folder: "${name}"…`);
   const res = await drive.files.list({
     q: `mimeType='application/vnd.google-apps.folder' and name='${name}' and ${parentQuery} and trashed=false`,
-    fields: 'files(id, name)',
-    spaces: 'drive',
+    fields: 'files(id, name)', spaces: 'drive',
   });
   if (res.data.files.length > 0) {
     console.log(`[Drive] ✓ Found: "${name}" → ${res.data.files[0].id}`);
@@ -167,7 +189,7 @@ async function getContinentalFolderId() {
 
 // ── Upload ──────────────────────────────────────────────────────────────────
 async function uploadToContinental({ buffer, filename, mimeType }) {
-  console.log(`[Drive] Upload: ${filename} (${(buffer.length/1024).toFixed(1)} KB)`);
+  console.log(`[Drive] Upload: ${filename} (${(buffer.length / 1024).toFixed(1)} KB)`);
   const drive    = await getDriveClient();
   const folderId = await getContinentalFolderId();
   const { Readable } = require('stream');
